@@ -5,16 +5,16 @@ Interactive 3D force-directed map of friends, clusters, relationship types, and 
 ## View the graph
 
 **Live demo (GitHub Pages):**  
-https://rostom-baccar.github.io/friend-network/
+https://rostom-baccar.github.io/network-graph/
 
 **Direct graph page:**  
-https://rostom-baccar.github.io/friend-network/index.html
+https://rostom-baccar.github.io/network-graph/index.html
 
 **Alternate preview (if Pages is still warming up):**  
-https://htmlpreview.github.io/?https://github.com/rostom-baccar/friend-network/blob/main/index.html
+https://htmlpreview.github.io/?https://github.com/rostom-baccar/network-graph/blob/main/index.html
 
-**Raw file on GitHub:**  
-https://github.com/rostom-baccar/friend-network/blob/main/index.html
+**Repo:**  
+https://github.com/rostom-baccar/network-graph
 
 > Needs an internet connection — the 3D engine loads from a CDN (`3d-force-graph`, Three.js, sprite text).
 
