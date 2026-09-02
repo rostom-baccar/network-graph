@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Rostom's people · 3D friend network</title>
+<style>
+  :root {
+    --bg: #07090e; --panel: #141820; --text: #e8eaed; --muted: #9aa0a6;
+    --line: #2a3140; --accent: #7eb6ff;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden;
+    background: var(--bg); color: var(--text);
+    font-family: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif; }
+  #app { display: flex; height: 100vh; width: 100vw; }
+  aside, #detail {
+    flex: 0 0 260px; background: var(--panel); border-right: 1px solid var(--line);
+    padding: 14px; overflow: auto; height: 100vh; z-index: 2;
+  }
+  #detail { flex-basis: 300px; border-right: none; border-left: 1px solid var(--line); }
+  h1 { font-size: 18px; margin: 0 0 4px; font-weight: 600; }
+  h2 { font-size: 12px; margin: 16px 0 8px; color: var(--muted); font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.05em; }
+  p, .meta { font-size: 13px; color: var(--muted); line-height: 1.45; margin: 0 0 10px; }
+  #stage { flex: 1 1 auto; position: relative; min-width: 0; height: 100vh; background: #07090e; }
+  #graph { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .toolbar {
+    position: absolute; top: 12px; left: 12px; right: 12px; z-index: 3;
+    display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+    background: rgba(20,24,32,0.92); border: 1px solid var(--line);
+    border-radius: 10px; padding: 8px 10px;
+  }
+  input, select, button {
+    background: #0b0d12; color: var(--text); border: 1px solid var(--line);
+    border-radius: 7px; padding: 6px 9px; font-size: 12px; cursor: pointer;
+  }
+  button:hover, button.active { border-color: var(--accent); color: var(--accent); }
+  .swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; margin-right: 6px; }
+  .legend-row, .cluster-row, .tie {
+    display: flex; align-items: center; gap: 8px; margin: 5px 0; font-size: 12px; cursor: pointer;
+  }
+  .tie { padding: 7px 8px; border: 1px solid var(--line); border-radius: 8px; background: #0b0d12; }
+  .tie:hover { border-color: var(--accent); }
+  .pill {
+    display: inline-block; font-size: 11px; padding: 2px 7px; border-radius: 999px;
+    border: 1px solid var(--line); color: var(--muted); margin: 0 4px 4px 0;
+  }
+  .stat { display: inline-block; margin-right: 14px; }
+  .stat b { display: block; font-size: 18px; color: var(--text); }
+  .note-block {
+    margin: 12px 0 14px; padding: 12px;
+    background: #0b0d12; border: 1px solid var(--line); border-radius: 10px;
+  }
+  .note-block .label {
+    font-size: 11px; color: var(--accent); text-transform: uppercase;
+    letter-spacing: 0.06em; font-weight: 600; margin-bottom: 6px;
+  }
+  .note-block p { margin: 0; font-size: 13.5px; line-height: 1.55; color: var(--text); }
+  .tie-note { display: block; margin-top: 3px; color: #c8cdd5; font-size: 11.5px; line-height: 1.4; }
+  #hint {
+    position: absolute; bottom: 12px; left: 12px; z-index: 3; font-size: 11px; color: var(--muted);
+    background: rgba(20,24,32,0.92); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px;
+    max-width: 480px; line-height: 1.4;
+  }
+  #tooltip {
+    position: absolute; z-index: 5; pointer-events: none; display: none; max-width: 280px;
+    background: rgba(20,24,32,0.95); border: 1px solid var(--line); border-radius: 8px;
+    padding: 8px 10px; font-size: 12px;
+  }
+  #tooltip b { display: block; font-size: 13px; margin-bottom: 2px; }
+  #tooltip .tip-note { margin-top: 6px; color: #c8cdd5; font-size: 11.5px; line-height: 1.4; }
+  #err {
+    display: none; position: absolute; inset: 80px 16px 16px; z-index: 10;
+    background: #1a1010; border: 1px solid #a44; border-radius: 10px; padding: 16px;
+    color: #f0c0c0; white-space: pre-wrap; font-size: 13px; overflow: auto;
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <aside>
+    <h1>Rostom's people</h1>
+    <p class="meta">3D · left-drag orbit · scroll zoom · right-drag pan · click a ball for details.</p>
+    <div>
+      <span class="stat"><b id="nPeople">0</b>people</span>
+      <span class="stat"><b id="nEdges">0</b>ties</span>
+    </div>
+    <h2>Relationships</h2>
+    <div id="relLegend"></div>
+    <h2>Clusters</h2>
+    <div id="clusterLegend"></div>
+  </aside>
+  <div id="stage">
+    <div class="toolbar">
+      <input id="search" placeholder="Search…" style="width:140px" />
+      <select id="clusterFilter"><option value="all">All clusters</option></select>
+      <select id="minStrength">
+        <option value="1">All strengths</option>
+        <option value="2">Strength ≥ 2</option>
+        <option value="3">Strength ≥ 3</option>
+        <option value="4">Strength ≥ 4</option>
+        <option value="5">Strength = 5</option>
+      </select>
+      <button id="btnAll" class="active">Show everyone</button>
+      <button id="btnWeak">Hide weak</button>
+      <button id="btnYou">Only you</button>
+      <button id="btnSpin" class="active">Auto-rotate</button>
+      <button id="btnResetCam">Reset camera</button>
+    </div>
+    <div id="graph"></div>
+    <div id="tooltip"></div>
+    <div id="hint">3D spheres = people. Bigger = closer to you. Drag to explore the space.</div>
+    <div id="err"></div>
+  </div>
+  <div id="detail">
+    <h1 id="dName">Select someone</h1>
+    <div id="dPills"></div>
+    <div id="dStats"></div>
+    <div class="note-block">
+      <div class="label">Note</div>
+      <p id="dNote">Click a ball in the 3D graph.</p>
+    </div>
+    <h2>Ties</h2>
+    <div id="dTies"></div>
+  </div>
+</div>
+<script src="https://unpkg.com/three@0.159.0/build/three.min.js"></script>
+<script src="https://unpkg.com/three-spritetext@1.8.2/dist/three-spritetext.min.js"></script>
+<script src="https://unpkg.com/3d-force-graph@1.73.3/dist/3d-force-graph.min.js"></script>
+<script>
+const DATA = {"people": [{"id": "rostom", "name": "Rostom (you)", "country": "Tunisia", "clusters": ["core", "tunisia", "poetry", "insa", "cite"], "primary": "core", "note": "INSA Strasbourg \u2192 Toulouse \u2192 Paris. Organizes poetry nights in the 15th (Balard). Lives with Iyed.", "withYou": 5, "poetry": 4}, {"id": "iyed", "name": "Iyed", "country": "Tunisia", "clusters": ["tunisia", "poetry"], "primary": "tunisia", "note": "Your best friend. Neighbor from Tunisia (met 2015 via German class, then bac math tutoring, then via Hamza). Studied in Tunisia then France. Cit\u00e9 \u2192 Fontenay ALJT with you \u2192 coloc Balard since Mar 2025. Knows your friends but is not always out with them.", "withYou": 5, "poetry": 4}, {"id": "yasser", "name": "Yasser", "country": "Morocco", "clusters": ["insa", "poetry"], "primary": "insa", "note": "Longest-lasting friend in France. Same path (2y Strasbourg, 3y Toulouse, Paris). Applied maths; you did IT/data. Different friend groups in Paris but stayed friends.", "withYou": 4, "poetry": 3}, {"id": "nada", "name": "Nada", "country": "Tunisia", "clusters": ["family", "tunisia"], "primary": "family", "note": "Your sister. Knows many poetry people casually; went out once with Zeina; paddle with Joud & Mathieu.", "withYou": 5, "poetry": 1}, {"id": "benji", "name": "Benji", "country": "Iran", "clusters": ["cite", "poetry"], "primary": "cite", "note": "Met at Sara (Lebanon)'s birthday. Historically tight with you and Teesta. Friends with Zeina, Melrick, Camila, Ezgi. Slowly becoming friends with Mathieu.", "withYou": 4, "poetry": 3}, {"id": "sara_lb", "name": "Sara (Lebanon)", "country": "Lebanon", "clusters": ["cite"], "primary": "cite", "note": "Met at Cit\u00e9. Instagram \u2192 birthday invite \u2192 introduced Benji. Travels a lot; only saw her once more.", "withYou": 2, "poetry": 0}, {"id": "trishia", "name": "Trishia", "country": "USA / Philippines", "clusters": ["romantic"], "primary": "romantic", "note": "Fell deeply in love Oct 2023. She visited Paris Aug 2024 (Fontenay). Separated by circumstances; deep depression Mar 2025 that pushed you to meet new people via ESN.", "withYou": 5, "poetry": 0, "status": "Past \u2014 love of your life"}, {"id": "marta", "name": "Marta", "country": "Spain / Poland", "clusters": ["poetry", "sciencepo"], "primary": "poetry", "note": "Met at ESN mug painting. Invited you to Zofia's first poetry night. Science Po exchange. Beef with Zofia (broke up with Zofia's Poland roommate she met at a Polish poetry night). Stayed 3 nights at your place.", "withYou": 3, "poetry": 0}, {"id": "zofia", "name": "Zofia", "country": "Poland", "clusters": ["poetry", "sciencepo"], "primary": "poetry", "note": "Organized ~4 poetry nights in her Paris apartment. Science Po exchange. Now in Poland. Thing with Michael (kicked out after insulting her). Invited Jagoda, Krzysztof, Anfisa, etc.", "withYou": 3, "poetry": 2}, {"id": "sara_co", "name": "Sara (Colombia)", "country": "Colombia", "clusters": ["poetry", "sciencepo"], "primary": "poetry", "note": "Was Zofia's roommate. Major connector (birthday \u2192 Maria Sofia, Madi, Hubert). Friends with Sanchit, Icaro, Paul, Am\u00e9lie, Claudia.", "withYou": 4, "poetry": 2}, {"id": "jagoda", "name": "Jagoda", "country": "Poland", "clusters": ["poetry", "sciencepo", "romantic"], "primary": "romantic", "note": "Met via Zofia (Polish Science Po group). Almost together; very close; met at Cit\u00e9 while you lived in 15th. Cut contact when she went to Poland; recently apologized; talking again. Now Barcelona.", "withYou": 3, "poetry": 0, "status": "Reconnecting"}, {"id": "sanchit", "name": "Sanchit", "country": "India", "clusters": ["poetry"], "primary": "poetry", "note": "Sara (Colombia)'s friend. Poetry nights.", "withYou": 2, "poetry": 1}, {"id": "teesta", "name": "Teesta", "country": "India", "clusters": ["poetry"], "primary": "poetry", "note": "Zofia met her on Bumble. Was a core bar trio with you and Benji. Leaving Paris for Strasbourg for good. Close friend of Tahney.", "withYou": 4, "poetry": 3, "status": "Moving to Strasbourg (for good)"}, {"id": "hassania", "name": "Hassania", "country": "Morocco", "clusters": ["poetry"], "primary": "poetry", "note": "Bridge person: introduced Mathieu & Dania (and Aline). You are not her biggest fan, but she matters structurally. Left for Romania VIE after breakup with Mathieu. Friends with Ibrahim & Serkan before leaving.", "withYou": 1, "poetry": 3, "status": "Romania (VIE) \u2014 kept as connector"}, {"id": "mathieu", "name": "Mathieu", "country": "R\u00e9union", "clusters": ["poetry", "core"], "primary": "core", "note": "Met via Hassania. Recent but became one of your closest friends. Trio history with you & Claudia. Talks to Claudia every day; they like each other a lot but are not officially together (Paris \u2194 Barcelona). Slowly becoming friends with Benji.", "withYou": 5, "poetry": 4}, {"id": "dania", "name": "Dania", "country": "Palestine / Canada", "clusters": ["poetry"], "primary": "poetry", "note": "Met via Hassania. After Hassania left, bars \u2192 friends.", "withYou": 3, "poetry": 2}, {"id": "maria_sofia", "name": "Maria Sofia", "country": "Colombia", "clusters": ["poetry"], "primary": "poetry", "note": "Met at Sara (Colombia)'s birthday.", "withYou": 2, "poetry": 3}, {"id": "madi", "name": "Madi", "country": "USA / Palestine", "clusters": ["poetry", "sciencepo"], "primary": "sciencepo", "note": "Regular at your poetry nights. Always invites Claudia. Science Po circle with Paul, Sara, Am\u00e9lie, Claudia.", "withYou": 3, "poetry": 3}, {"id": "hubert", "name": "Hubert", "country": "France", "clusters": ["poetry", "sciencepo"], "primary": "sciencepo", "note": "Sara (Colombia)'s boyfriend. Met at Zofia's poetry night; again at Sara's birthday. Came to your birthday bar.", "withYou": 2, "poetry": 1}, {"id": "claudia", "name": "Claudia", "country": "Spain", "clusters": ["poetry", "sciencepo", "romantic"], "primary": "sciencepo", "note": "Invited by Madi. You liked her; feelings dimmed as Mathieu & she grew close. Trio with you & Mathieu. Broke up with English bf; 10 days at Mathieu's waiting for bag. Now Barcelona \u2014 not officially with Mathieu, but they talk daily and like each other a lot.", "withYou": 4, "poetry": 2, "status": "Barcelona \u00b7 with Mathieu unofficially / LDR vibes"}, {"id": "paul", "name": "Paul", "country": "Romania", "clusters": ["poetry", "sciencepo"], "primary": "sciencepo", "note": "Science Po. Poetry nights (Zofia + yours). Friends with Madi, Sara, Claudia.", "withYou": 3, "poetry": 3}, {"id": "melrick", "name": "Melrick", "country": "France", "clusters": ["work", "poetry"], "primary": "work", "note": "Veepee colleague. Invited to poetry nights & bars. Friends with Benji, Zeina, Mathieu.", "withYou": 3, "poetry": 2}, {"id": "ibrahim", "name": "Ibrahim", "country": "Turkey", "clusters": ["cite", "poetry"], "primary": "cite", "note": "Met at Cit\u00e9 alumni WhatsApp bar event. Regular poetry invitee. Always brings Serkan. Friends with Zeina, Hassania (before Romania).", "withYou": 3, "poetry": 3}, {"id": "zeina", "name": "Zeina", "country": "Lebanon", "clusters": ["cite", "poetry"], "primary": "cite", "note": "Met with Ibrahim at Cit\u00e9 alumni bar. Recently moved out of Cit\u00e9. Friends with Serkan, Camila, Ezgi, Benji. Went out once with Nada.", "withYou": 3, "poetry": 4}, {"id": "serkan", "name": "Serkan", "country": "Turkey", "clusters": ["cite", "poetry"], "primary": "cite", "note": "Ibrahim's Turkish friend; poetry regular. Friends with Zeina, Hassania.", "withYou": 2, "poetry": 2}, {"id": "camila", "name": "Camila", "country": "Ecuador", "clusters": ["cite"], "primary": "cite", "note": "Zeina/Ezgi's friend. You met at bar; Benji also met them at F\u00eate de la Cit\u00e9.", "withYou": 2, "poetry": 0}, {"id": "ezgi", "name": "Ezgi", "country": "Turkey", "clusters": ["cite"], "primary": "cite", "note": "Met via Zeina at the bar; Benji also via F\u00eate de la Cit\u00e9. Sometimes brings friends (e.g. Camila).", "withYou": 2, "poetry": 0}, {"id": "tahney", "name": "Tahney", "country": "Australia", "clusters": ["poetry"], "primary": "poetry", "note": "Close friend of Teesta. Dinner at Teesta's with you, Iyed, Benji, Sara, Leyah. BF is Rodrigo.", "withYou": 2, "poetry": 1}, {"id": "amelie", "name": "Am\u00e9lie", "country": "Australia", "clusters": ["poetry", "sciencepo"], "primary": "sciencepo", "note": "Science Po. Zofia's + your poetry nights. GF Francesca. Organized Thanksgiving where you met Haifei. Caf\u00e9 outings with Sara, Leyah, Teesta.", "withYou": 3, "poetry": 2}, {"id": "shanna", "name": "Shanna", "country": "France", "clusters": ["insa"], "primary": "insa", "note": "Yasser's ex (2 years). Techno parties (Glazard). Brought Anais \u2192 Leyah.", "withYou": 2, "poetry": 1}, {"id": "anais", "name": "Ana\u00efs", "country": "France", "clusters": ["insa"], "primary": "insa", "note": "Shanna's friend. Met at Glazard; brought Leyah.", "withYou": 1, "poetry": 0}, {"id": "leyah", "name": "Leyah", "country": "France", "clusters": ["romantic", "poetry"], "primary": "romantic", "note": "Met via Ana\u00efs at Glazard. Hit it off; she was with someone then. After Aug 2025 breakup \u2192 dating from Nov 2025. Non-exclusive since Mar 2026. Moving to England to teach; never fell in love but care a lot. Casual ongoing.", "withYou": 5, "poetry": 4, "status": "Casual / non-exclusive; England-bound"}, {"id": "anfisa", "name": "Anfisa", "country": "Latvia", "clusters": ["poetry", "sciencepo"], "primary": "sciencepo", "note": "Science Po; Zofia's friend. Bars + your poetry nights.", "withYou": 2, "poetry": 4}, {"id": "antoine", "name": "Antoine", "country": "France", "clusters": ["insa"], "primary": "insa", "note": "Yasser's friend \u2192 yours. Gateway to Pardis, Fasiha, Kuda. GF Emily.", "withYou": 3, "poetry": 1}, {"id": "pardis", "name": "Pardis", "country": "Iran", "clusters": ["insa"], "primary": "insa", "note": "Through Antoine. Not very close.", "withYou": 1, "poetry": 0}, {"id": "fasiha", "name": "Fasiha", "country": "Pakistan", "clusters": ["insa"], "primary": "insa", "note": "Through Antoine. Not very close. Came to your birthday bar.", "withYou": 1, "poetry": 0}, {"id": "kuda", "name": "Kuda", "country": "Kazakhstan", "clusters": ["insa"], "primary": "insa", "note": "Through Antoine. Organized BBQ where you met Kenza.", "withYou": 1, "poetry": 0}, {"id": "kenza", "name": "Kenza", "country": "Tunisia", "clusters": ["tunisia"], "primary": "tunisia", "note": "Met at Kuda's BBQ. Introduced Eya & Salah to you and Nada.", "withYou": 3, "poetry": 1}, {"id": "eya", "name": "Eya", "country": "Morocco", "clusters": ["tunisia"], "primary": "tunisia", "note": "Met through Kenza with Nada.", "withYou": 2, "poetry": 1}, {"id": "salah", "name": "Salah", "country": "Morocco", "clusters": ["tunisia"], "primary": "tunisia", "note": "Met through Kenza with Nada.", "withYou": 2, "poetry": 1}, {"id": "joud", "name": "Joud", "country": "France / Syria", "clusters": ["family"], "primary": "family", "note": "Nada's friend. Paddle with Nada, you, Mathieu.", "withYou": 2, "poetry": 0}, {"id": "hajer", "name": "Hajer", "country": "Tunisia", "clusters": ["tunisia", "family"], "primary": "tunisia", "note": "Nada's friend. Iyed knows her from Tunisia. Group dinner once.", "withYou": 2, "poetry": 0}, {"id": "chaima", "name": "Chaima", "country": "Tunisia", "clusters": ["tunisia"], "primary": "tunisia", "note": "Hajer's friend.", "withYou": 1, "poetry": 0}, {"id": "dhya", "name": "Dhya", "country": "Tunisia", "clusters": ["tunisia", "family"], "primary": "tunisia", "note": "Iyed's brother.", "withYou": 2, "poetry": 0}, {"id": "rodrigo", "name": "Rodrigo", "country": "Brazil", "clusters": ["poetry"], "primary": "poetry", "note": "Tahney's boyfriend.", "withYou": 1, "poetry": 0}, {"id": "francesca", "name": "Francesca", "country": "Italy", "clusters": ["sciencepo"], "primary": "sciencepo", "note": "Am\u00e9lie's girlfriend. Science Po. Nice; poetry night guest.", "withYou": 2, "poetry": 1}, {"id": "haifei", "name": "Haifei", "country": "China", "clusters": ["poetry"], "primary": "poetry", "note": "Met at Am\u00e9lie's Thanksgiving. Invited to poetry nights a couple times.", "withYou": 2, "poetry": 3}, {"id": "michael", "name": "Michael", "country": "USA", "clusters": ["poetry"], "primary": "poetry", "note": "Had a thing with Zofia. Kicked out of last Zofia poetry night after calling her a nazi and reading an insulting poem. Widely disliked after.", "withYou": 0, "poetry": 0, "status": "Persona non grata"}, {"id": "emily", "name": "Emily", "country": "Scotland", "clusters": ["insa"], "primary": "insa", "note": "Antoine's girlfriend. Came once to your poetry night.", "withYou": 1, "poetry": 1}, {"id": "krzysztof", "name": "Krzysztof", "country": "Poland", "clusters": ["poetry", "sciencepo"], "primary": "poetry", "note": "Friends with Marta & Zofia. Zofia invited him to your poetry nights.", "withYou": 2, "poetry": 3}, {"id": "icaro", "name": "\u00cdcaro", "country": "Chile", "clusters": ["poetry"], "primary": "poetry", "note": "Sara (Colombia)'s friend. Your poetry night + birthday.", "withYou": 2, "poetry": 1}, {"id": "oliwia", "name": "Oliwia", "country": "Poland", "clusters": ["couch"], "primary": "couch", "note": "Couchsurfing guest. Came to your birthday bar.", "withYou": 2, "poetry": 0}, {"id": "mara", "name": "Mara", "country": "Germany", "clusters": ["couch"], "primary": "couch", "note": "Couchsurfing guest (with Tita) \u2014 first stay.", "withYou": 1, "poetry": 0}, {"id": "tita", "name": "Tita", "country": "Germany", "clusters": ["couch"], "primary": "couch", "note": "Couchsurfing guest (with Mara) \u2014 first stay.", "withYou": 1, "poetry": 0}, {"id": "yana", "name": "Yana", "country": "Ukraine", "clusters": ["couch"], "primary": "couch", "note": "Couchsurfing. You liked her; she left a harsh review accusing you of being controlling (misunderstanding about welcoming her).", "withYou": 1, "poetry": 0, "status": "Bad review fallout"}, {"id": "li", "name": "Li", "country": "Germany", "clusters": ["couch"], "primary": "couch", "note": "Couchsurfing with Julien. Hosted twice.", "withYou": 2, "poetry": 1}, {"id": "julien", "name": "Julien", "country": "Germany", "clusters": ["couch"], "primary": "couch", "note": "Couchsurfing with Li. Hosted twice.", "withYou": 2, "poetry": 1}, {"id": "hamza", "name": "Hamza", "country": "Tunisia", "clusters": ["tunisia"], "primary": "tunisia", "note": "Former friend who brought you and Iyed close in Tunisia. No longer friends.", "withYou": 0, "poetry": 0, "status": "Former friend"}, {"id": "aline", "name": "Aline", "country": "Lebanon", "clusters": ["poetry"], "primary": "poetry", "note": "Hassania's friend. Came once to a poetry night \u2014 that's it.", "withYou": 1, "poetry": 1}, {"id": "titus", "name": "Titus", "country": "France", "clusters": ["poetry"], "primary": "poetry", "note": "French; knows his poems. Came to some of Zofia's and your poetry nights. Nice, but nothing more than acquaintance-level.", "withYou": 1, "poetry": 1}, {"id": "selene", "name": "Selene", "country": "Switzerland", "clusters": ["poetry"], "primary": "poetry", "note": "Met at Am\u00e9lie's Thanksgiving (with Haifei). Came to some of your poetry nights \u2014 peripheral otherwise.", "withYou": 1, "poetry": 2}], "edges": [{"a": "rostom", "b": "iyed", "type": "roommate", "strength": 5, "note": "Colocs since Mar 2025; friends since ~2015"}, {"a": "rostom", "b": "iyed", "type": "close_friend", "strength": 5, "note": "Best friends \u2014 he knows your friends but is not always out with them"}, {"a": "rostom", "b": "yasser", "type": "close_friend", "strength": 4, "note": "Longest France friend; parallel INSA path"}, {"a": "rostom", "b": "nada", "type": "family", "strength": 5}, {"a": "rostom", "b": "benji", "type": "close_friend", "strength": 4, "note": "Close friend; was trio with Teesta"}, {"a": "rostom", "b": "mathieu", "type": "close_friend", "strength": 5, "note": "Recent but very close"}, {"a": "rostom", "b": "teesta", "type": "close_friend", "strength": 4, "note": "Was bar trio with Benji \u2014 leaving for Strasbourg for good"}, {"a": "rostom", "b": "sara_co", "type": "friend", "strength": 4}, {"a": "rostom", "b": "claudia", "type": "close_friend", "strength": 4, "note": "Trio; past crush dimmed"}, {"a": "rostom", "b": "claudia", "type": "almost", "strength": 2}, {"a": "rostom", "b": "leyah", "type": "romantic", "strength": 5, "note": "Casual / non-exclusive since Mar 2026 \u00b7 closeness 5/5"}, {"a": "rostom", "b": "trishia", "type": "romantic_past", "strength": 5, "note": "Love of your life"}, {"a": "rostom", "b": "jagoda", "type": "almost", "strength": 3, "note": "Almost together; reconnecting"}, {"a": "rostom", "b": "jagoda", "type": "friend", "strength": 3}, {"a": "rostom", "b": "zofia", "type": "friend", "strength": 3, "note": "Poetry nights host \u2192 inspired yours"}, {"a": "rostom", "b": "marta", "type": "friend", "strength": 3, "note": "ESN \u2192 poetry entry; hosted 3 nights"}, {"a": "rostom", "b": "marta", "type": "host", "strength": 2}, {"a": "rostom", "b": "melrick", "type": "work", "strength": 3}, {"a": "rostom", "b": "melrick", "type": "friend", "strength": 3}, {"a": "rostom", "b": "zeina", "type": "friend", "strength": 3}, {"a": "rostom", "b": "ibrahim", "type": "friend", "strength": 3}, {"a": "rostom", "b": "serkan", "type": "friend", "strength": 2}, {"a": "rostom", "b": "madi", "type": "friend", "strength": 3}, {"a": "rostom", "b": "paul", "type": "friend", "strength": 3}, {"a": "rostom", "b": "dania", "type": "friend", "strength": 3}, {"a": "rostom", "b": "hassania", "type": "acquaintance", "strength": 1}, {"a": "rostom", "b": "sara_lb", "type": "acquaintance", "strength": 2, "note": "Cit\u00e9 \u2192 introduced Benji"}, {"a": "rostom", "b": "antoine", "type": "friend", "strength": 3}, {"a": "rostom", "b": "shanna", "type": "friend", "strength": 2}, {"a": "rostom", "b": "kenza", "type": "friend", "strength": 3}, {"a": "rostom", "b": "amelie", "type": "friend", "strength": 3}, {"a": "rostom", "b": "anfisa", "type": "friend", "strength": 2}, {"a": "rostom", "b": "haifei", "type": "friend", "strength": 2}, {"a": "rostom", "b": "selene", "type": "acquaintance", "strength": 1, "note": "Thanksgiving + some poetry nights"}, {"a": "rostom", "b": "aline", "type": "acquaintance", "strength": 1, "note": "Hassania's friend; one poetry night"}, {"a": "rostom", "b": "titus", "type": "acquaintance", "strength": 1, "note": "Poetry nights; nice, nothing more"}, {"a": "rostom", "b": "krzysztof", "type": "friend", "strength": 2}, {"a": "rostom", "b": "sanchit", "type": "acquaintance", "strength": 2}, {"a": "rostom", "b": "maria_sofia", "type": "acquaintance", "strength": 2}, {"a": "rostom", "b": "hubert", "type": "acquaintance", "strength": 2}, {"a": "rostom", "b": "icaro", "type": "acquaintance", "strength": 2}, {"a": "rostom", "b": "tahney", "type": "acquaintance", "strength": 2}, {"a": "rostom", "b": "camila", "type": "acquaintance", "strength": 2, "note": "Ezgi/Zeina orbit"}, {"a": "rostom", "b": "ezgi", "type": "friend", "strength": 2, "note": "Friends; sometimes brings her circle"}, {"a": "rostom", "b": "eya", "type": "friend", "strength": 2}, {"a": "rostom", "b": "salah", "type": "friend", "strength": 2}, {"a": "rostom", "b": "joud", "type": "acquaintance", "strength": 2}, {"a": "rostom", "b": "hajer", "type": "acquaintance", "strength": 2}, {"a": "rostom", "b": "chaima", "type": "acquaintance", "strength": 1}, {"a": "rostom", "b": "dhya", "type": "acquaintance", "strength": 2}, {"a": "rostom", "b": "pardis", "type": "acquaintance", "strength": 1}, {"a": "rostom", "b": "fasiha", "type": "acquaintance", "strength": 1}, {"a": "rostom", "b": "kuda", "type": "acquaintance", "strength": 1}, {"a": "rostom", "b": "anais", "type": "acquaintance", "strength": 1}, {"a": "rostom", "b": "emily", "type": "acquaintance", "strength": 1}, {"a": "rostom", "b": "francesca", "type": "acquaintance", "strength": 2}, {"a": "rostom", "b": "rodrigo", "type": "acquaintance", "strength": 1}, {"a": "rostom", "b": "oliwia", "type": "host", "strength": 2}, {"a": "rostom", "b": "mara", "type": "host", "strength": 1}, {"a": "rostom", "b": "tita", "type": "host", "strength": 1}, {"a": "rostom", "b": "yana", "type": "host", "strength": 1}, {"a": "rostom", "b": "yana", "type": "tension", "strength": 2, "note": "Harsh couchsurfing review"}, {"a": "rostom", "b": "li", "type": "host", "strength": 2}, {"a": "rostom", "b": "julien", "type": "host", "strength": 2}, {"a": "rostom", "b": "hamza", "type": "tension", "strength": 1, "note": "No longer friends"}, {"a": "rostom", "b": "michael", "type": "tension", "strength": 1, "note": "Kicked out of poetry night"}, {"a": "iyed", "b": "hamza", "type": "tension", "strength": 1, "note": "Former friend triangle"}, {"a": "iyed", "b": "dhya", "type": "family", "strength": 5}, {"a": "iyed", "b": "hajer", "type": "friend", "strength": 2, "note": "From Tunisia"}, {"a": "iyed", "b": "benji", "type": "friend", "strength": 2, "note": "Knows him via you"}, {"a": "iyed", "b": "teesta", "type": "friend", "strength": 2, "note": "Knows her via you"}, {"a": "yasser", "b": "shanna", "type": "ex", "strength": 4, "note": "2-year relationship"}, {"a": "yasser", "b": "antoine", "type": "friend", "strength": 4}, {"a": "shanna", "b": "anais", "type": "friend", "strength": 3}, {"a": "anais", "b": "leyah", "type": "friend", "strength": 3}, {"a": "sara_lb", "b": "benji", "type": "friend", "strength": 3, "note": "Birthday intro"}, {"a": "zofia", "b": "marta", "type": "tension", "strength": 3, "note": "Beef over Marta\u2019s ex (Zofia\u2019s Poland roommate)"}, {"a": "zofia", "b": "sara_co", "type": "roommate", "strength": 4, "note": "Paris apartment"}, {"a": "zofia", "b": "jagoda", "type": "friend", "strength": 3, "note": "Polish Science Po group"}, {"a": "zofia", "b": "michael", "type": "romantic_past", "strength": 2}, {"a": "zofia", "b": "michael", "type": "tension", "strength": 5, "note": "Insult poem / nazi accusation"}, {"a": "zofia", "b": "anfisa", "type": "friend", "strength": 3}, {"a": "zofia", "b": "krzysztof", "type": "friend", "strength": 3}, {"a": "marta", "b": "krzysztof", "type": "friend", "strength": 3}, {"a": "sara_co", "b": "sanchit", "type": "friend", "strength": 3}, {"a": "sara_co", "b": "hubert", "type": "romantic", "strength": 4}, {"a": "sara_co", "b": "icaro", "type": "friend", "strength": 3}, {"a": "sara_co", "b": "madi", "type": "friend", "strength": 3}, {"a": "sara_co", "b": "maria_sofia", "type": "friend", "strength": 3}, {"a": "sara_co", "b": "paul", "type": "friend", "strength": 3}, {"a": "sara_co", "b": "amelie", "type": "friend", "strength": 3}, {"a": "sara_co", "b": "claudia", "type": "friend", "strength": 3}, {"a": "madi", "b": "claudia", "type": "friend", "strength": 4, "note": "Always invites her"}, {"a": "madi", "b": "paul", "type": "friend", "strength": 3}, {"a": "paul", "b": "claudia", "type": "friend", "strength": 3}, {"a": "mathieu", "b": "hassania", "type": "ex", "strength": 3}, {"a": "mathieu", "b": "claudia", "type": "close_friend", "strength": 5, "note": "Talk every day; like each other a lot"}, {"a": "mathieu", "b": "claudia", "type": "almost", "strength": 4, "note": "Not official \u2014 Paris \u2194 Barcelona distance"}, {"a": "mathieu", "b": "benji", "type": "friend", "strength": 2, "note": "Slowly becoming friends"}, {"a": "mathieu", "b": "zeina", "type": "friend", "strength": 2}, {"a": "mathieu", "b": "dania", "type": "friend", "strength": 2}, {"a": "mathieu", "b": "melrick", "type": "friend", "strength": 3}, {"a": "mathieu", "b": "ezgi", "type": "acquaintance", "strength": 2, "note": "Acquaintance via shared circle"}, {"a": "benji", "b": "dania", "type": "friend", "strength": 2}, {"a": "zeina", "b": "melrick", "type": "friend", "strength": 3}, {"a": "zeina", "b": "dania", "type": "friend", "strength": 2}, {"a": "melrick", "b": "dania", "type": "friend", "strength": 2}, {"a": "ezgi", "b": "camila", "type": "friend", "strength": 3, "note": "Ezgi's friend orbit"}, {"a": "mathieu", "b": "nada", "type": "acquaintance", "strength": 2, "note": "Paddle"}, {"a": "hassania", "b": "dania", "type": "friend", "strength": 3}, {"a": "hassania", "b": "aline", "type": "friend", "strength": 3}, {"a": "hassania", "b": "ibrahim", "type": "friend", "strength": 2}, {"a": "hassania", "b": "serkan", "type": "friend", "strength": 2}, {"a": "ibrahim", "b": "serkan", "type": "close_friend", "strength": 4}, {"a": "ibrahim", "b": "zeina", "type": "friend", "strength": 4}, {"a": "zeina", "b": "serkan", "type": "friend", "strength": 3}, {"a": "zeina", "b": "camila", "type": "friend", "strength": 4}, {"a": "zeina", "b": "ezgi", "type": "friend", "strength": 4}, {"a": "zeina", "b": "benji", "type": "friend", "strength": 3}, {"a": "benji", "b": "camila", "type": "friend", "strength": 3}, {"a": "benji", "b": "ezgi", "type": "friend", "strength": 3}, {"a": "benji", "b": "melrick", "type": "friend", "strength": 3}, {"a": "benji", "b": "teesta", "type": "close_friend", "strength": 4, "note": "Was trio with Rostom; Teesta leaving Paris"}, {"a": "teesta", "b": "tahney", "type": "close_friend", "strength": 4}, {"a": "tahney", "b": "rodrigo", "type": "romantic", "strength": 4}, {"a": "amelie", "b": "francesca", "type": "romantic", "strength": 4}, {"a": "amelie", "b": "haifei", "type": "friend", "strength": 2, "note": "Thanksgiving host"}, {"a": "amelie", "b": "selene", "type": "friend", "strength": 2, "note": "Thanksgiving"}, {"a": "amelie", "b": "claudia", "type": "friend", "strength": 3}, {"a": "amelie", "b": "madi", "type": "friend", "strength": 3}, {"a": "amelie", "b": "paul", "type": "friend", "strength": 3}, {"a": "zofia", "b": "titus", "type": "acquaintance", "strength": 2, "note": "Her poetry nights"}, {"a": "antoine", "b": "emily", "type": "romantic", "strength": 4}, {"a": "antoine", "b": "pardis", "type": "friend", "strength": 2}, {"a": "antoine", "b": "fasiha", "type": "friend", "strength": 2}, {"a": "antoine", "b": "kuda", "type": "friend", "strength": 2}, {"a": "kuda", "b": "kenza", "type": "acquaintance", "strength": 2, "note": "BBQ"}, {"a": "kenza", "b": "eya", "type": "friend", "strength": 3}, {"a": "kenza", "b": "salah", "type": "friend", "strength": 3}, {"a": "kenza", "b": "nada", "type": "friend", "strength": 3}, {"a": "nada", "b": "joud", "type": "friend", "strength": 3}, {"a": "nada", "b": "hajer", "type": "friend", "strength": 3}, {"a": "hajer", "b": "chaima", "type": "friend", "strength": 3}, {"a": "nada", "b": "zeina", "type": "acquaintance", "strength": 2, "note": "Went out once"}, {"a": "li", "b": "julien", "type": "romantic", "strength": 4, "note": "Couple; hosted twice"}, {"a": "mara", "b": "tita", "type": "friend", "strength": 3}, {"a": "zofia", "b": "teesta", "type": "friend", "strength": 2, "note": "Met on Bumble"}]};
+
+function showErr(msg) {
+  const el = document.getElementById("err");
+  el.style.display = "block";
+  el.textContent = msg;
+  console.error(msg);
+}
+
+const CLUSTERS = {
+  core:      { label: "You / center", color: "#7eb6ff", angle: 0, elev: 0 },
+  tunisia:   { label: "Tunisia roots", color: "#5fa88c", angle: -40, elev: 0.15 },
+  insa:      { label: "INSA / Yasser", color: "#e0a45a", angle: 25, elev: -0.1 },
+  cite:      { label: "Cité universitaire", color: "#5eb3c4", angle: 75, elev: 0.3 },
+  poetry:    { label: "Poetry nights", color: "#9b7ed9", angle: 135, elev: -0.2 },
+  sciencepo: { label: "Science Po", color: "#d97eb0", angle: 180, elev: 0.12 },
+  work:      { label: "Work (Veepee)", color: "#d4c15a", angle: -110, elev: 0.35 },
+  couch:     { label: "Couchsurfing", color: "#8b90a0", angle: -155, elev: -0.3 },
+  family:    { label: "Family orbit", color: "#d96b6b", angle: -75, elev: 0.08 },
+  romantic:  { label: "Romantic orbit", color: "#e091c0", angle: 225, elev: -0.35 },
+};
+
+const REL = {
+  close_friend:  { label: "Close friend", color: "#5fa88c" },
+  friend:        { label: "Friend", color: "#7eb6ff" },
+  acquaintance:  { label: "Acquaintance", color: "#8b90a0" },
+  romantic:      { label: "Romantic now", color: "#e091c0" },
+  romantic_past: { label: "Romantic past", color: "#9b7ed9" },
+  almost:        { label: "Almost / crush", color: "#e0a45a" },
+  family:        { label: "Family", color: "#d4c15a" },
+  roommate:      { label: "Coloc", color: "#5eb3c4" },
+  host:          { label: "Hosted", color: "#5eb3c4" },
+  work:          { label: "Work", color: "#d4c15a" },
+  ex:            { label: "Ex", color: "#9b7ed9" },
+  tension:       { label: "Tension", color: "#d96b6b" },
+};
+
+try {
+  if (typeof ForceGraph3D !== "function") {
+    throw new Error("3D library missing. Stay online and reload.");
+  }
+  if (typeof SpriteText !== "function") {
+    throw new Error("SpriteText missing (needed for name labels). Stay online and reload.");
+  }
+  if (typeof THREE === "undefined") {
+    throw new Error("THREE missing. Stay online and reload.");
+  }
+
+  const peopleById = Object.fromEntries(DATA.people.map(p => [p.id, p]));
+  const state = {
+    cluster: "all", minStrength: 1, hideWeak: false, onlyYou: false,
+    selected: "rostom", search: "", spin: true, _userNav: false, neigh: new Set(),
+  };
+
+  const stage = document.getElementById("stage");
+  const graphEl = document.getElementById("graph");
+  const tooltip = document.getElementById("tooltip");
+
+  function dims() {
+    return {
+      w: Math.max(480, stage.clientWidth || window.innerWidth - 560),
+      h: Math.max(480, stage.clientHeight || window.innerHeight),
+    };
+  }
+
+  function clusterAnchor(primary, R = 200) {
+    const meta = CLUSTERS[primary] || CLUSTERS.core;
+    if (primary === "core") return { x: 0, y: 0, z: 0 };
+    const a = (meta.angle * Math.PI) / 180;
+    const elev = meta.elev || 0;
+    const r = R * Math.cos(elev * Math.PI / 2);
+    return {
+      x: Math.cos(a) * r,
+      y: Math.sin(elev * Math.PI) * R * 0.7,
+      z: Math.sin(a) * r,
+    };
+  }
+
+  function nodeColor(d) {
+    if (state.selected && d.id !== state.selected && !state.neigh.has(d.id)) return "#333842";
+    return d.id === "rostom" ? "#7eb6ff" : (CLUSTERS[d.primary]?.color || "#aaa");
+  }
+
+  function nodeVal(d) {
+    return d.id === "rostom" ? 36 : 6 + (d.withYou || 1) * 3.5;
+  }
+
+  function filteredGraph() {
+    const q = state.search.trim().toLowerCase();
+    const nodes = DATA.people.filter(p => {
+      if (p.id === "rostom") return true;
+      if (state.cluster !== "all" && !p.clusters.includes(state.cluster)) return false;
+      if (q && !p.name.toLowerCase().includes(q) && !p.country.toLowerCase().includes(q)) return false;
+      return true;
+    }).map(p => {
+      const c = clusterAnchor(p.primary);
+      return {
+        id: p.id,
+        name: p.name,
+        country: p.country,
+        primary: p.primary,
+        clusters: p.clusters,
+        note: p.note,
+        withYou: p.withYou,
+        poetry: p.poetry,
+        status: p.status,
+        x: c.x + (Math.random() - 0.5) * 40,
+        y: c.y + (Math.random() - 0.5) * 40,
+        z: c.z + (Math.random() - 0.5) * 40,
+      };
+    });
+    const ids = new Set(nodes.map(n => n.id));
+    const links = DATA.edges.filter(e => {
+      if (!ids.has(e.a) || !ids.has(e.b)) return false;
+      if (e.strength < state.minStrength) return false;
+      if (state.hideWeak && (e.type === "acquaintance" || e.type === "host")) return false;
+      if (state.onlyYou && e.a !== "rostom" && e.b !== "rostom") return false;
+      return true;
+    }).map(e => ({
+      source: e.a, target: e.b, type: e.type, strength: e.strength, note: e.note || "",
+    }));
+    document.getElementById("nPeople").textContent = nodes.length;
+    document.getElementById("nEdges").textContent = links.length;
+    return { nodes, links };
+  }
+
+  const { w: W0, h: H0 } = dims();
+
+  // Keep the chain to methods that exist on ForceGraph3D
+  const Graph = ForceGraph3D()(graphEl)
+    .width(W0)
+    .height(H0)
+    .backgroundColor("#07090e")
+    .showNavInfo(false)
+    .nodeId("id")
+    .nodeLabel(d => `${d.name} · ${d.withYou}/5`)
+    .nodeRelSize(6)
+    .nodeVal(nodeVal)
+    .nodeColor(nodeColor)
+    .nodeOpacity(0.95)
+    .linkColor(l => {
+      if (state.selected) {
+        const a = l.source.id || l.source;
+        const b = l.target.id || l.target;
+        if (a !== state.selected && b !== state.selected) return "rgba(60,68,80,0.15)";
+      }
+      return REL[l.type]?.color || "#666";
+    })
+    .linkWidth(l => 0.7 + (l.strength || 1) * 0.55)
+    .linkOpacity(0.6)
+    .cooldownTicks(140)
+    // Keep default spheres, add floating name labels
+    .nodeThreeObject(node => {
+      const sprite = new SpriteText(node.name);
+      sprite.color = "#f2f4f7";
+      sprite.backgroundColor = "rgba(11,13,18,0.55)";
+      sprite.padding = 1.5;
+      sprite.borderRadius = 3;
+      sprite.textHeight = node.id === "rostom" ? 5.5 : 3.6;
+      sprite.fontFace = "IBM Plex Sans, Segoe UI, sans-serif";
+      sprite.fontWeight = "600";
+      sprite.strokeWidth = 0;
+      sprite.material.depthWrite = false;
+      // sit just above the ball
+      const r = Math.cbrt(Math.max(1, nodeVal(node))) * 6;
+      sprite.position.y = r + 2.5;
+      return sprite;
+    })
+    .nodeThreeObjectExtend(true)
+    .onNodeHover(node => {
+      document.body.style.cursor = node ? "pointer" : "default";
+      if (!node) { tooltip.style.display = "none"; return; }
+      const tipNote = node.note
+        ? `<div class="tip-note">${node.note.length > 160 ? node.note.slice(0, 157) + "…" : node.note}</div>`
+        : "";
+      tooltip.style.display = "block";
+      tooltip.innerHTML = `<b>${node.name}</b>${node.country}<br>${node.withYou}/5 · ${CLUSTERS[node.primary]?.label || ""}${tipNote}`;
+    })
+    .onNodeClick(node => {
+      if (!node) return;
+      state.selected = node.id;
+      updateNeigh();
+      renderDetail(node.id);
+      Graph.nodeColor(nodeColor).linkColor(Graph.linkColor());
+      Graph.cameraPosition(
+        { x: node.x + 100, y: node.y + 50, z: node.z + 180 },
+        { x: node.x, y: node.y, z: node.z },
+        700
+      );
+    });
+
+  // Simple forces only — avoid custom forces that can NaN
+  Graph.d3Force("charge").strength(-140);
+  Graph.d3Force("center").strength(0.05);
+
+  graphEl.addEventListener("mousemove", e => {
+    const rect = stage.getBoundingClientRect();
+    tooltip.style.left = (e.clientX - rect.left + 14) + "px";
+    tooltip.style.top = (e.clientY - rect.top + 14) + "px";
+  });
+
+  function updateNeigh() {
+    state.neigh = new Set();
+    const sid = state.selected;
+    if (!sid) return;
+    Graph.graphData().links.forEach(l => {
+      const a = l.source.id || l.source;
+      const b = l.target.id || l.target;
+      if (a === sid) state.neigh.add(b);
+      if (b === sid) state.neigh.add(a);
+    });
+  }
+
+  function applyLinkForce() {
+    const link = Graph.d3Force("link");
+    if (!link) return;
+    link.distance(l => {
+      const a = peopleById[l.source.id || l.source];
+      const b = peopleById[l.target.id || l.target];
+      const same = a && b && a.primary === b.primary;
+      return (same ? 28 : 70) + (5 - (l.strength || 1)) * 8;
+    }).strength(l => {
+      const a = peopleById[l.source.id || l.source];
+      const b = peopleById[l.target.id || l.target];
+      const same = a && b && a.primary === b.primary;
+      return (same ? 0.7 : 0.12) * ((l.strength || 1) / 5);
+    });
+  }
+
+  function renderDetail(id) {
+    const p = peopleById[id];
+    if (!p) return;
+    document.getElementById("dName").textContent = p.name;
+    document.getElementById("dPills").innerHTML = [
+      p.country, `${p.withYou}/5 closeness`, CLUSTERS[p.primary]?.label || p.primary
+    ].concat(p.status ? [p.status] : [])
+      .map(t => `<span class="pill">${t}</span>`).join("");
+    document.getElementById("dNote").textContent = p.note || "No note.";
+    document.getElementById("dStats").innerHTML =
+      `<span class="stat"><b>${p.poetry}</b>poetry nights</span>`;
+    const ties = DATA.edges.filter(e => e.a === id || e.b === id)
+      .sort((a,b) => b.strength - a.strength);
+    document.getElementById("dTies").innerHTML = ties.map(e => {
+      const other = e.a === id ? e.b : e.a;
+      const o = peopleById[other];
+      const noteLine = e.note ? `<span class="tie-note">${e.note}</span>` : "";
+      return `<div class="tie" data-id="${other}">
+        <div style="flex:1">
+          <div style="color:var(--text);font-weight:600">${o?.name || other}</div>
+          <div style="color:var(--muted)">${REL[e.type]?.label || e.type} · ${e.strength}/5</div>
+          ${noteLine}
+        </div>
+        <span class="swatch" style="background:${CLUSTERS[o?.primary]?.color || "#666"}"></span>
+      </div>`;
+    }).join("");
+    document.querySelectorAll(".tie").forEach(el => {
+      el.addEventListener("click", () => {
+        const node = Graph.graphData().nodes.find(n => n.id === el.dataset.id);
+        state.selected = el.dataset.id;
+        updateNeigh();
+        renderDetail(state.selected);
+        Graph.nodeColor(nodeColor);
+        if (node) {
+          Graph.cameraPosition(
+            { x: node.x + 100, y: node.y + 50, z: node.z + 180 },
+            { x: node.x, y: node.y, z: node.z },
+            700
+          );
+        }
+      });
+    });
+  }
+
+  function build() {
+    const g = filteredGraph();
+    Graph.graphData(g);
+    applyLinkForce();
+    const { w, h } = dims();
+    Graph.width(w).height(h);
+    updateNeigh();
+    renderDetail(state.selected);
+    Graph.nodeColor(nodeColor);
+    Graph.cameraPosition({ x: 0, y: 140, z: 520 }, { x: 0, y: 0, z: 0 }, 0);
+
+    requestAnimationFrame(() => {
+      const canvas = graphEl.querySelector("canvas");
+      if (!canvas) showErr("WebGL canvas missing — try Chrome/Edge/Firefox with hardware acceleration on.");
+      else console.log("3D ready", g.nodes.length, canvas.width, canvas.height);
+    });
+  }
+
+  function setupChrome() {
+    document.getElementById("relLegend").innerHTML = Object.values(REL).map(v =>
+      `<div class="legend-row"><span class="swatch" style="background:${v.color}"></span>${v.label}</div>`
+    ).join("");
+    const cBox = document.getElementById("clusterLegend");
+    const sel = document.getElementById("clusterFilter");
+    for (const [id, meta] of Object.entries(CLUSTERS)) {
+      if (id === "core") continue;
+      sel.insertAdjacentHTML("beforeend", `<option value="${id}">${meta.label}</option>`);
+      cBox.insertAdjacentHTML("beforeend",
+        `<div class="cluster-row" data-c="${id}"><span class="swatch" style="background:${meta.color}"></span>${meta.label}</div>`);
+    }
+    cBox.querySelectorAll(".cluster-row").forEach(el => {
+      el.addEventListener("click", () => {
+        state.cluster = el.dataset.c;
+        sel.value = state.cluster;
+        build();
+      });
+    });
+    document.getElementById("search").oninput = e => { state.search = e.target.value; build(); };
+    sel.onchange = e => { state.cluster = e.target.value; build(); };
+    document.getElementById("minStrength").onchange = e => { state.minStrength = +e.target.value; build(); };
+    document.getElementById("btnAll").onclick = () => {
+      state.cluster = "all"; state.search = ""; state.hideWeak = false; state.onlyYou = false; state.minStrength = 1;
+      document.getElementById("search").value = "";
+      document.getElementById("clusterFilter").value = "all";
+      document.getElementById("minStrength").value = "1";
+      document.getElementById("btnWeak").classList.remove("active");
+      document.getElementById("btnYou").classList.remove("active");
+      build();
+    };
+    document.getElementById("btnWeak").onclick = e => {
+      state.hideWeak = !state.hideWeak; e.target.classList.toggle("active", state.hideWeak); build();
+    };
+    document.getElementById("btnYou").onclick = e => {
+      state.onlyYou = !state.onlyYou; e.target.classList.toggle("active", state.onlyYou); build();
+    };
+    document.getElementById("btnSpin").onclick = e => {
+      state.spin = !state.spin;
+      e.target.classList.toggle("active", state.spin);
+    };
+    document.getElementById("btnResetCam").onclick = () => {
+      Graph.cameraPosition({ x: 0, y: 140, z: 520 }, { x: 0, y: 0, z: 0 }, 800);
+    };
+    const pause = () => {
+      state._userNav = true;
+      clearTimeout(pause._t);
+      pause._t = setTimeout(() => { state._userNav = false; }, 2200);
+    };
+    graphEl.addEventListener("pointerdown", pause);
+    graphEl.addEventListener("wheel", pause, { passive: true });
+  }
+
+  let angle = 0;
+  (function spin() {
+    if (state.spin && !state._userNav) {
+      const cam = Graph.cameraPosition();
+      const r = Math.hypot(cam.x, cam.z) || 520;
+      angle += 0.002;
+      Graph.cameraPosition({ x: r * Math.sin(angle), y: cam.y, z: r * Math.cos(angle) });
+    }
+    requestAnimationFrame(spin);
+  })();
+
+  setupChrome();
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    const { w, h } = dims();
+    Graph.width(w).height(h);
+    build();
+  }));
+  window.addEventListener("resize", () => {
+    const { w, h } = dims();
+    Graph.width(w).height(h);
+  });
+} catch (e) {
+  showErr("Could not start the 3D graph:\n\n" + (e && e.stack ? e.stack : e));
+}
+</script>
+</body>
+</html>
